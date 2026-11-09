@@ -4,6 +4,13 @@ All notable changes to Symmetrix-XL are documented in this file.
 
 ## Unreleased
 
+- Fixed MACE export for checkpoints whose stored symmetric-contraction U
+  matrices differ in sign from the recomputed ones, such as MACE-MP-0b2-large
+  (`mace-large-density-agnesi-stress.model`). The exporter takes each recomputed
+  U column's sign from the checkpoint's `U_matrix_<nu>` buffer and refuses a
+  buffer that matches neither sign. Exports of checkpoints that already
+  matched are unchanged.
+
 ## 0.1.2 - 2026-11-04
 
 - Added an opt-in Apple Metal backend for FP32 standard-MACE execution on
