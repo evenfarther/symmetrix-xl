@@ -65,6 +65,8 @@ names the option: a model without `scale_shift` (plain `MACE`),
 `embedding_specs`, `use_agnostic_product`, `use_last_readout_only`, a readout
 other than MACE's linear and non-linear readout blocks (such as
 `NonLinearBiasReadoutBlock`), and a non-linear readout gate other than SiLU.
+Each interaction's product may use correlation order 1, 2 or 3, also mixed
+per layer (for example `correlation=[3, 2]`); higher orders are refused.
 
 Multi-head JSON models retain every head. Select one with `head=` and inspect
 `calculator.available_heads`. `SymmetrixEnsemble` provides same-process,

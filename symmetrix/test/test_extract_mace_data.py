@@ -824,3 +824,66 @@ def test_silu_readout_export_matches_mace(tmp_path):
     )
     np.testing.assert_allclose(atoms.get_forces(), reference_forces, rtol=0, atol=1e-6)
     np.testing.assert_allclose(atoms.get_stress(), reference_stress, rtol=0, atol=1e-6)
+
+
+def _small_periodic_atoms():
+    from ase import Atoms
+
+    return Atoms(
+        "COHHO",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.21, 0.05, -0.03],
+            [-0.62, 0.91, 0.12],
+            [-0.58, -0.94, 0.21],
+            [2.3, 1.1, 0.6],
+        ],
+        cell=[6.0, 6.5, 7.0],
+        pbc=True,
+    )
+
+
+@pytest.mark.parametrize("correlation", [1, 2, [3, 2], [2, 3]], ids=str)
+def test_export_matches_mace_for_correlation_orders_below_three(tmp_path, correlation):
+    from symmetrix import Symmetrix
+    from symmetrix.extract_mace_data import _extract_single_head_data
+
+    model = _small_mace_model(correlation=correlation)
+    data = _extract_single_head_data(model, radial_format="compact")
+    path = tmp_path / "model.json"
+    path.write_text(json.dumps(data, separators=(",", ":")))
+    atoms = _small_periodic_atoms()
+    reference_energy, reference_forces, reference_stress = _mace_energy_forces_stress(
+        model, atoms
+    )
+    for options in ({"streamed_edges": "non-compiled"}, {}):
+        atoms.calc = Symmetrix(str(path), dtype="float64", **options)
+        assert atoms.get_potential_energy() == pytest.approx(
+            reference_energy, rel=0, abs=1e-8 * len(atoms)
+        )
+        np.testing.assert_allclose(
+            atoms.get_forces(), reference_forces, rtol=0, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            atoms.get_stress(), reference_stress, rtol=0, atol=1e-6
+        )
+
+
+@pytest.mark.parametrize("products", [(1,), (0, 1)], ids=["second", "both"])
+def test_export_refuses_correlation_orders_above_three(products):
+    from symmetrix.extract_mace_data import _extract_single_head_data
+
+    model = _small_mace_model()
+    # Building an order-4 product is too costly for a unit test; the refusal
+    # reads only the declared order.
+    for index in products:
+        for contraction in model.products[index].symmetric_contractions.contractions:
+            contraction.correlation = 4
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            rf"products\[{products[0]}\] has correlation 4: "
+            "correlation orders above 3 are not supported"
+        ),
+    ):
+        _extract_single_head_data(model, radial_format="compact", num_spline_points=64)
