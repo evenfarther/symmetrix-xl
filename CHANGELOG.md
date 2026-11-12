@@ -25,6 +25,10 @@ All notable changes to Symmetrix-XL are documented in this file.
   the domain mode crashed. The next run now stops with an error; issue
   `pair_coeff` again after the change. An identical line, or one that changes
   only the electric field components, still needs none.
+- Fixed `pair_coeff` of the Kokkos pair style terminating the process when
+  the model cannot be loaded (an unreadable file, a malformed model or an
+  unknown `head`). It now reports a LAMMPS error, which a Python `lammps` host
+  can catch.
 - Fixed the Kokkos pair style under `pair_style hybrid` or `hybrid/overlay`
   with `mpi_message_passing`, the default on more than one MPI rank: the
   wrapper kept the message sizes it had before `pair_coeff` set this style's,
