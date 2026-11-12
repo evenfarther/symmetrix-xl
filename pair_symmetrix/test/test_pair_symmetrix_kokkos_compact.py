@@ -257,7 +257,7 @@ fix             integrate all nve
     return _case_result(label, completed, log_text)
 
 
-def _run_deck(tmp_path, label, setup, timeout=900, stages=None):
+def _run_deck(tmp_path, label, setup, timeout=900, stages=None, kokkos=True):
     log_path = tmp_path / f"{label}.log"
     spec = {
         "cmdargs": [
@@ -266,7 +266,7 @@ def _run_deck(tmp_path, label, setup, timeout=900, stages=None):
             "none",
             "-log",
             str(log_path),
-            *_kokkos_arguments(),
+            *(_kokkos_arguments() if kokkos else ()),
         ],
         "setup": setup,
         "stages": stages,
@@ -699,17 +699,18 @@ def test_type_change_without_a_neighbor_build_matches_a_fresh_run(
         assert changed["graph_rebuilds"] == 2
 
 
-def _static_deck(model, pair_style):
+def _static_deck(model, pair_style, units="metal", kokkos=True):
     # The two-type deck of _run_case without integration.
     atoms = "\n".join(
         f"create_atoms {kind} single {x} {y} {z} units box"
         for kind, x, y, z in _POSITIONS
     )
+    package = "package         kokkos neigh half newton on" if kokkos else ""
     return f"""
-package         kokkos neigh half newton on
-units           metal
+{package}
+units           {units}
 boundary        p p p
-atom_style      atomic/kk
+atom_style      atomic{"/kk" if kokkos else ""}
 atom_modify     map array sort 0 0
 newton          on
 region          box block 0 6.2085633514918648 0 6.2085633514918648 0 6.2085633514918648
@@ -859,3 +860,26 @@ def test_a_model_that_fails_to_load_is_a_lammps_error(
     assert len(errors) == 1, completed.stdout
     assert f"could not load model '{model}'" in errors[0]
     assert completed.stdout.splitlines()[-1] == "CLOSED"
+
+
+@pytest.mark.parametrize(
+    ("pair_style", "kokkos"),
+    [(_REISSUE_BASE, True), ("symmetrix/mace no_domain_decomposition", False)],
+    ids=["kokkos", "serial"],
+)
+def test_pair_style_requires_metal_units(
+    tmp_path, compact_model_path, pair_style, kokkos
+):
+    # Positions are read in the input's length unit and energies returned in
+    # its energy unit; the models use Angstrom and eV.
+    label = f"units-real-{'kokkos' if kokkos else 'serial'}"
+    completed, log_text = _run_deck(
+        tmp_path,
+        label,
+        _static_deck(compact_model_path, pair_style, units="real", kokkos=kokkos),
+        stages=[["first", "run 0"]],
+        timeout=300,
+        kokkos=kokkos,
+    )
+    assert completed.returncode != 0, log_text[-2000:]
+    assert "requires 'units metal'" in log_text + completed.stderr, log_text[-2000:]

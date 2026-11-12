@@ -29,6 +29,9 @@ All notable changes to Symmetrix-XL are documented in this file.
   the model cannot be loaded (an unreadable file, a malformed model or an
   unknown `head`). It now reports a LAMMPS error, which a Python `lammps` host
   can catch.
+- Fixed both pair styles reading positions and returning energies in the
+  wrong units, without a message, under unit styles other than `metal`. They
+  now require `units metal` and stop with an error otherwise.
 - Fixed the Kokkos pair style under `pair_style hybrid` or `hybrid/overlay`
   with `mpi_message_passing`, the default on more than one MPI rank: the
   wrapper kept the message sizes it had before `pair_coeff` set this style's,
