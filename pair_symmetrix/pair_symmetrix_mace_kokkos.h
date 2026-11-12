@@ -88,6 +88,10 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
   bool jit_m0_device_schedule_set = false;
   bool jit_device_blocks_per_compute_unit_set = false;
   int jit_device_blocks_per_compute_unit = 8;
+  // The options of the last settings() call and of the one the model was
+  // loaded with in coeff().
+  std::string settings_key;
+  std::string coeff_settings_key;
   std::uint64_t execution_graph_generation = 0;
   int execution_num_nodes = 0;
   int execution_num_feature_nodes = 0;
@@ -116,6 +120,7 @@ class PairSymmetrixMACEKokkos : public Pair, public KokkosBase {
 
   // neighbor list variables
   Kokkos::View<int*> node_indices;
+  Kokkos::View<int*> node_of_atom;
   Kokkos::View<int*> node_types;
   Kokkos::View<int*> feature_types;
   Kokkos::View<int*> num_neigh;

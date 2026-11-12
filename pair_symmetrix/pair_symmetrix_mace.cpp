@@ -25,6 +25,7 @@
 #include "neigh_list.h"
 #include "neighbor.h"
 #include "platform.h"
+#include "update.h"
 
 #include <algorithm>
 #include <cstring>
@@ -238,6 +239,20 @@ void PairSymmetrixMACE::init_style()
   execution_timing_enabled = 0.0;
   if (atom->map_user == atom->MAP_NONE) error->all(FLERR, "symmetrix/mace requires \'atom_modify map [yes|array|hash]\'");
   if (force->newton_pair == 0) error->all(FLERR, "symmetrix/mace requires newton pair on");
+  // The models take positions in Angstrom and return energies in eV; the unit
+  // style is final once the box exists.
+  if (strcmp(update->unit_style, "metal") != 0)
+    error->all(FLERR, "symmetrix/mace requires \'units metal\'");
+
+  // Under pair_style hybrid or hybrid/overlay, Comm::init sizes the host
+  // communication buffers from the wrapper's comm_forward and comm_reverse.
+  // The wrapper took its sub-styles' sizes in settings(), before coeff() set
+  // this style's from the model, so raise them here: the pair styles are
+  // initialized before Comm::init runs.
+  if (force->pair != this) {
+    force->pair->comm_forward = std::max(force->pair->comm_forward, comm_forward);
+    force->pair->comm_reverse = std::max(force->pair->comm_reverse, comm_reverse);
+  }
 
   if (mode == "no_domain_decomposition" or mode == "mpi_message_passing") {
     neighbor->add_request(this, NeighConst::REQ_FULL);
@@ -443,6 +458,16 @@ void PairSymmetrixMACE::compute_no_domain_decomposition(int eflag, int vflag)
 void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
+
+  // The per-atom message passing indexes receivers by local atom. The
+  // condition is rank-local, so stop this rank: a collective error would wait
+  // for ranks whose lists are full.
+  if (list->inum != atom->nlocal)
+    error->one(FLERR,
+      "pair_style symmetrix/mace mpi_message_passing requires every owned atom "
+      "in its neighbor list; a hybrid pair_coeff assignment removed atoms of "
+      "some type. Use no_domain_decomposition on one rank, or "
+      "no_mpi_message_passing.");
 
   const double r_cut_squared = mace->r_cut*mace->r_cut;
 

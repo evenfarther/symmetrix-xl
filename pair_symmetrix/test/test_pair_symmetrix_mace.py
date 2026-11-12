@@ -178,9 +178,10 @@ def _hybrid_atomic_energies(cmdargs, pair_style, mode):
 def test_per_atom_energy_uses_neighbor_list_atom_indices(
     cmdargs, pair_style, rtol, atol
 ):
+    # mpi_message_passing requires every owned atom in its neighbor list, which
+    # a type-filtered hybrid list does not keep.
     for mode in (
         "no_domain_decomposition",
-        "mpi_message_passing",
         "no_mpi_message_passing",
     ):
         atom_types, per_atom, repeated, energy, num_ghosts = _hybrid_atomic_energies(

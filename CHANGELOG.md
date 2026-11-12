@@ -4,6 +4,50 @@ All notable changes to Symmetrix-XL are documented in this file.
 
 ## Unreleased
 
+- Fixed the Kokkos pair style on type-filtered neighbor lists, where
+  `pair_style hybrid` or `hybrid/overlay` gives the pairs of some atom types to
+  another sub-style and the list skips those atoms. `no_domain_decomposition`
+  indexed each neighbor by its local atom instead of its receiver row, which
+  read the wrong features or crashed whenever a skipped atom came before a
+  MACE atom; it now maps atoms to receiver rows. `mpi_message_passing`, which
+  needs every owned atom in its list, stops with an error naming the cause
+  instead of writing past its receiver rows.
+- Fixed the prepared `no_domain_decomposition` route of the Kokkos pair style
+  (`streamed_edges direct`) after an atom type changes without a neighbor list
+  build, as in `fix sgcmc`: it kept the graph built for the old types and
+  returned the energy and forces of the old species. The pair style now
+  compares the receivers' types with the graph's on each step and rebuilds the
+  graph when one differs.
+- Fixed the Kokkos pair style after a re-issued `pair_style` line changes its
+  options following `pair_coeff`. LAMMPS passes such a line to the existing
+  pair style, which kept the model loaded with the earlier options: a new
+  `streamed_edges`, `profile` or `head` was ignored silently, and a change of
+  the domain mode crashed. The next run now stops with an error; issue
+  `pair_coeff` again after the change. An identical line, or one that changes
+  only the electric field components, still needs none.
+- Fixed `pair_coeff` of the Kokkos pair style terminating the process when
+  the model cannot be loaded (an unreadable file, a malformed model or an
+  unknown `head`). It now reports a LAMMPS error, which a Python `lammps` host
+  can catch.
+- Fixed both pair styles reading positions and returning energies in the
+  wrong units, without a message, under unit styles other than `metal`. They
+  now require `units metal` and stop with an error otherwise.
+- Fixed the serial pair style's `mpi_message_passing` returning wrong
+  energies and forces on a type-filtered `hybrid` neighbor list: it indexes
+  its per-atom messages by local atom and needs every owned atom in the list,
+  so it now stops with an error instead.
+- Fixed the serial pair style under `pair_style hybrid` or `hybrid/overlay`
+  with `mpi_message_passing` and a model with more than about a thousand H1
+  values per atom: as for the Kokkos pair style, the wrapper kept the message
+  sizes from before `pair_coeff` and the message passing wrote past the
+  communication buffers. `init_style()` now raises the wrapper's sizes.
+- Fixed the Kokkos pair style under `pair_style hybrid` or `hybrid/overlay`
+  with `mpi_message_passing`, the default on more than one MPI rank: the
+  wrapper kept the message sizes it had before `pair_coeff` set this style's,
+  LAMMPS sized the host communication buffers from them, and the per-atom
+  message passing wrote past those buffers (a crash in CPU Kokkos builds).
+  `init_style()` now raises the wrapper's sizes to this style's.
+
 ## 0.1.2 - 2026-11-04
 
 - Added an opt-in Apple Metal backend for FP32 standard-MACE execution on
