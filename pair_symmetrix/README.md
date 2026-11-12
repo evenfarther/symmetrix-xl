@@ -35,6 +35,12 @@ types `1`, `2`, and `3`, respectively. A compact universal JSON can be reused by
 different input with another element mapping; active radial tables are built
 once during `pair_coeff` for that mapping.
 
+`pair_coeff` loads the model with the options of the preceding `pair_style`
+line. After a `pair_style` line for the same style that changes an option, such
+as the domain mode, `streamed_edges`, `profile`, `head` or an artifact, issue
+`pair_coeff` again; otherwise the Kokkos pair style stops at the next run. The
+electric field components can change without a new `pair_coeff`.
+
 Model files use Symmetrix-XL format version 4, with compact or pair-spline
 radial data. Format-1/2 files (including the unversioned original Symmetrix
 format) store readout and skip weights multiplied by the inverse of

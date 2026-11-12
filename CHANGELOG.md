@@ -18,6 +18,13 @@ All notable changes to Symmetrix-XL are documented in this file.
   returned the energy and forces of the old species. The pair style now
   compares the receivers' types with the graph's on each step and rebuilds the
   graph when one differs.
+- Fixed the Kokkos pair style after a re-issued `pair_style` line changes its
+  options following `pair_coeff`. LAMMPS passes such a line to the existing
+  pair style, which kept the model loaded with the earlier options: a new
+  `streamed_edges`, `profile` or `head` was ignored silently, and a change of
+  the domain mode crashed. The next run now stops with an error; issue
+  `pair_coeff` again after the change. An identical line, or one that changes
+  only the electric field components, still needs none.
 - Fixed the Kokkos pair style under `pair_style hybrid` or `hybrid/overlay`
   with `mpi_message_passing`, the default on more than one MPI rank: the
   wrapper kept the message sizes it had before `pair_coeff` set this style's,
