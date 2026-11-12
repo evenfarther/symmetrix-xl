@@ -4,6 +4,12 @@ All notable changes to Symmetrix-XL are documented in this file.
 
 ## Unreleased
 
+- Fixed the default float32 calculator route (`streamed_edges="direct"` with
+  compact edge geometry) on frames without edges, such as an isolated atom or
+  atoms farther apart than the cutoff: it raised "Spherical-harmonic
+  coordinates do not cover all edge radii." instead of returning the atomic
+  energies. The float64 and non-compiled routes already evaluated these frames.
+
 ## 0.1.2 - 2026-11-04
 
 - Added an opt-in Apple Metal backend for FP32 standard-MACE execution on
