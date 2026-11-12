@@ -32,6 +32,10 @@ All notable changes to Symmetrix-XL are documented in this file.
 - Fixed both pair styles reading positions and returning energies in the
   wrong units, without a message, under unit styles other than `metal`. They
   now require `units metal` and stop with an error otherwise.
+- Fixed the serial pair style's `mpi_message_passing` returning wrong
+  energies and forces on a type-filtered `hybrid` neighbor list: it indexes
+  its per-atom messages by local atom and needs every owned atom in the list,
+  so it now stops with an error instead.
 - Fixed the Kokkos pair style under `pair_style hybrid` or `hybrid/overlay`
   with `mpi_message_passing`, the default on more than one MPI rank: the
   wrapper kept the message sizes it had before `pair_coeff` set this style's,

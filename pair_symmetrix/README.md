@@ -117,9 +117,9 @@ Under `pair_style hybrid` or `hybrid/overlay`, a `pair_coeff` line that gives
 the pairs of some atom types to another sub-style (`pair_coeff 1 * zero`, or
 `none` under `hybrid/overlay`) removes those atoms from this style's neighbor
 list. `no_domain_decomposition` evaluates the model on the remaining atoms.
-`symmetrix/mace/kk mpi_message_passing` requires every owned atom in its list
-and stops with an error; on more than one rank use `no_mpi_message_passing`
-with `streamed_edges generic` or `materialized`.
+`mpi_message_passing` requires every owned atom in its list and stops with an
+error; on more than one rank use `no_mpi_message_passing` (with
+`streamed_edges generic` or `materialized` for the Kokkos pair style).
 
 `profile capacity` is the default and activates the same qualified M1
 recomputation and MH-0 adjoint-reuse bundle as the Python API. Use `profile

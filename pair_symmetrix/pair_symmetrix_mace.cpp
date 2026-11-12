@@ -449,6 +449,16 @@ void PairSymmetrixMACE::compute_mpi_message_passing(int eflag, int vflag)
 {
   ev_init(eflag, vflag);
 
+  // The per-atom message passing indexes receivers by local atom. The
+  // condition is rank-local, so stop this rank: a collective error would wait
+  // for ranks whose lists are full.
+  if (list->inum != atom->nlocal)
+    error->one(FLERR,
+      "pair_style symmetrix/mace mpi_message_passing requires every owned atom "
+      "in its neighbor list; a hybrid pair_coeff assignment removed atoms of "
+      "some type. Use no_domain_decomposition on one rank, or "
+      "no_mpi_message_passing.");
+
   const double r_cut_squared = mace->r_cut*mace->r_cut;
 
   // count edges

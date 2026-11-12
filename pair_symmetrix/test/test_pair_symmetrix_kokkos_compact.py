@@ -501,7 +501,7 @@ def test_hybrid_overlay_message_passing_matches_the_plain_style(
         )
 
 
-def _type_filtered_deck(model, pair_style, wrapper, placement):
+def _type_filtered_deck(model, pair_style, wrapper, placement, kokkos=True):
     # Type 1 has no MACE element: plain hybrid gives its pairs to zero, and
     # hybrid/overlay removes them with none. The MACE atoms keep their
     # positions, so they interact as in the two-type deck.
@@ -527,11 +527,12 @@ pair_coeff      * * symmetrix/mace {model} H H O
 pair_coeff      * * zero
 pair_coeff      1 * none"""
     atom_lines = "\n".join(atoms)
+    package = "package         kokkos neigh half newton on" if kokkos else ""
     return f"""
-package         kokkos neigh half newton on
+{package}
 units           metal
 boundary        p p p
-atom_style      atomic/kk
+atom_style      atomic{"/kk" if kokkos else ""}
 atom_modify     map array sort 0 0
 newton          on
 region          box block 0 6.2085633514918648 0 6.2085633514918648 0 6.2085633514918648
@@ -883,3 +884,48 @@ def test_pair_style_requires_metal_units(
     )
     assert completed.returncode != 0, log_text[-2000:]
     assert "requires 'units metal'" in log_text + completed.stderr, log_text[-2000:]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["no_domain_decomposition", "no_mpi_message_passing", "mpi_message_passing"],
+)
+def test_serial_pair_style_on_a_type_filtered_list(tmp_path, compact_model_path, mode):
+    # The serial pair style maps neighbors to receiver rows in the local modes;
+    # its per-atom message passing indexes receivers by local atom, so it stops
+    # on a list without every owned atom instead of returning wrong forces.
+    pair_style = f"symmetrix/mace {mode}"
+    label = f"serial-filtered-{mode}"
+    completed, log_text = _run_deck(
+        tmp_path,
+        label,
+        _type_filtered_deck(
+            compact_model_path, pair_style, "hybrid", "first", kokkos=False
+        ),
+        stages=[["initial", "run 0"]],
+        timeout=300,
+        kokkos=False,
+    )
+    if mode == "mpi_message_passing":
+        assert completed.returncode != 0, log_text[-2000:]
+        assert (
+            "mpi_message_passing requires every owned atom in its neighbor list"
+            in log_text + completed.stderr
+        ), f"stderr:\n{completed.stderr[-2000:]}\nlog tail:\n{log_text[-2000:]}"
+        return
+    result = _case_result(label, completed, log_text)["initial"]
+    completed, log_text = _run_deck(
+        tmp_path,
+        f"{label}-reference",
+        _static_deck(compact_model_path, pair_style, kokkos=False),
+        stages=[["initial", "run 0"]],
+        kokkos=False,
+    )
+    reference = _case_result(f"{label}-reference", completed, log_text)["initial"]
+    forces = np.asarray(result["forces"])
+    expected_forces = np.asarray(reference["forces"])
+    assert np.max(np.abs(expected_forces)) > 0.0
+    assert result["pe"] == pytest.approx(reference["pe"], rel=1.0e-12, abs=1.0e-10)
+    np.testing.assert_allclose(
+        forces[len(_DUMMY_POSITIONS) :], expected_forces, rtol=1.0e-12, atol=1.0e-10
+    )
