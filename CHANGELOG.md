@@ -4,6 +4,22 @@ All notable changes to Symmetrix-XL are documented in this file.
 
 ## Unreleased
 
+- Fixed the default float32 calculator route (`streamed_edges="direct"` with
+  compact edge geometry) on frames without edges, such as an isolated atom or
+  atoms farther apart than the cutoff: it raised "Spherical-harmonic
+  coordinates do not cover all edge radii." instead of returning the atomic
+  energies. The float64 and non-compiled routes already evaluated these frames.
+- Fixed the direct route on a graph without receivers, as in the first run of
+  a box created without atoms or on an MPI rank that owns no atom and no
+  ghost: H1 kept no trailing extents, the R1 launch stopped with "R1 tensor
+  shape is inconsistent with the plugin contract", and the run aborted. H1 and
+  its adjoint now keep the model's trailing extents with zero rows.
+- Fixed the ASE calculator on cells without volume, such as a molecule from
+  `ase.build.molecule` without a cell or a slab whose non-periodic cell vector
+  is zero: matscipy's neighbor list inverts the cell and raised
+  `LinAlgError`. Such cells now use ASE's neighbor list; cells with volume
+  keep matscipy.
+
 ## 0.1.2 - 2026-11-04
 
 - Added an opt-in Apple Metal backend for FP32 standard-MACE execution on

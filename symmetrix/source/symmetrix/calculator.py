@@ -29,6 +29,7 @@ from ase.calculators.calculator import (
     compare_atoms,
     equal,
 )
+from ase.neighborlist import neighbor_list as _ase_neighbor_list
 from ase.stress import full_3x3_to_voigt_6_stress
 
 from . import symmetrix
@@ -150,6 +151,43 @@ def _receiver_major_neighbor_arrays(receivers, sources, shifts):
         np.ascontiguousarray(sources),
         np.ascontiguousarray(shifts),
     )
+
+
+def _fast_neighbor_list_admits(atoms):
+    """Return whether the module's neighbor-list provider can build this cell.
+
+    matscipy's ``neighbour_list`` inverts the cell unconditionally, so it needs
+    a finite cell whose vectors span space; it honours ``pbc`` axis by axis, so
+    a vacuum-padded slab or a molecule in a finite box qualifies. A cell that
+    ASE leaves as zeros, or whose vectors do not span space, is singular.
+    """
+
+    cell = np.asarray(atoms.cell, dtype=float)
+    if not np.all(np.isfinite(cell)):
+        return False
+    sign, log_abs_determinant = np.linalg.slogdet(cell)
+    return bool(sign) and bool(np.isfinite(log_abs_determinant))
+
+
+def _host_neighbor_list(request, atoms, cutoff):
+    """Return the host neighbor-list arrays of ``atoms`` at ``cutoff``.
+
+    Finite invertible cells use the module-level ``neighbor_list`` provider
+    (matscipy when it is installed). Singular cells, such as a molecule
+    without a cell or a slab with a zero vector on its non-periodic axis, use
+    ASE's implementation, as does a cell the provider rejects as singular.
+    """
+
+    if not _fast_neighbor_list_admits(atoms):
+        return _ase_neighbor_list(request, atoms, float(cutoff))
+    try:
+        return neighbor_list(request, atoms, float(cutoff))
+    except np.linalg.LinAlgError:
+        _LOGGER.warning(
+            "Symmetrix falling back to ase.neighborlist.neighbor_list: the "
+            "neighbor-list provider rejected a singular cell"
+        )
+        return _ase_neighbor_list(request, atoms, float(cutoff))
 
 
 def _neighbor_backend_request():
@@ -2970,7 +3008,7 @@ class Symmetrix(Calculator):
                 topology_fractional_xyz = np.empty((0, 3), dtype=float)
                 self.neighbor_graph_backend = "kokkos"
             else:
-                receivers, sources, shifts = neighbor_list(
+                receivers, sources, shifts = _host_neighbor_list(
                     "ijS", atoms, self.cutoff + self.neighbor_skin
                 )
                 _validate_int32_graph_cardinality(len(atomic_numbers), len(receivers))
@@ -3123,7 +3161,7 @@ class Symmetrix(Calculator):
                     "SYMMETRIX_NEIGHBOR_BACKEND=kokkos requires a positive "
                     "neighbor_skin and native prepared geometry."
                 )
-            i_list, j_list, r, xyz = neighbor_list("ijdD", atoms, self.cutoff)
+            i_list, j_list, r, xyz = _host_neighbor_list("ijdD", atoms, self.cutoff)
             self.neighbor_graph_backend = "host"
         num_nodes = len(atoms)
         cache = getattr(self, "_neighbor_cache", None)
