@@ -60,6 +60,12 @@ readout are supported with canonical equal-channel hidden irreps. This includes
 both the `L_max=1` single-v2 layout and the earlier `L_max=2` single-layer
 layout. Their compact JSON contains only the M0 and R0 execution contracts.
 
+The exporter refuses standard-MACE options that the JSON cannot represent and
+names the option: a model without `scale_shift` (plain `MACE`),
+`embedding_specs`, `use_agnostic_product`, `use_last_readout_only`, a readout
+other than MACE's linear and non-linear readout blocks (such as
+`NonLinearBiasReadoutBlock`), and a non-linear readout gate other than SiLU.
+
 Multi-head JSON models retain every head. Select one with `head=` and inspect
 `calculator.available_heads`. `SymmetrixEnsemble` provides same-process,
 sequential committee evaluation; it returns mean values, member values with

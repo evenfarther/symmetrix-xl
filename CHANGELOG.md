@@ -16,6 +16,14 @@ All notable changes to Symmetrix-XL are documented in this file.
   refuses them and names `mpi_message_passing`, and the generic evaluation
   entry refuses edge vectors under an active tiled plan unless they are the
   registered geometry or the prepared workspace.
+- Fixed MACE export of options the JSON cannot represent. A non-linear readout
+  gate other than SiLU (for example `tanh`) or a joint embedding
+  (`embedding_specs`) was exported silently and evaluated a different model;
+  `NonLinearBiasReadoutBlock` lost its biases; a missing gate,
+  `use_agnostic_product`, `use_last_readout_only` and plain `MACE` models
+  failed with an `AttributeError` or `IndexError`. The exporter now refuses
+  each with a `ValueError` that names the option. Supported models export
+  unchanged.
 
 ## 0.1.2 - 2026-11-04
 
