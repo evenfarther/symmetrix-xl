@@ -4,6 +4,39 @@ All notable changes to Symmetrix-XL are documented in this file.
 
 ## Unreleased
 
+- Fixed MACE export for checkpoints whose stored symmetric-contraction U
+  matrices differ in sign from the recomputed ones, such as MACE-MP-0b2-large
+  (`mace-large-density-agnesi-stress.model`). The exporter takes each recomputed
+  U column's sign from the checkpoint's `U_matrix_<nu>` buffer and refuses a
+  buffer that matches neither sign. Exports of checkpoints that already
+  matched are unchanged.
+- Fixed the Kokkos pair style accepting fixed-workspace tiled plans under
+  `no_domain_decomposition` (`allow_fixed_workspace yes` or a tiled
+  `_debug_execution_plan`), which then failed during `run`. `pair_style` now
+  refuses them and names `mpi_message_passing`, and the generic evaluation
+  entry refuses edge vectors under an active tiled plan unless they are the
+  registered geometry or the prepared workspace.
+- Fixed MACE export of options the JSON cannot represent. A non-linear readout
+  gate other than SiLU (for example `tanh`) or a joint embedding
+  (`embedding_specs`) was exported silently and evaluated a different model;
+  `NonLinearBiasReadoutBlock` lost its biases; a missing gate,
+  `use_agnostic_product`, `use_last_readout_only` and plain `MACE` models
+  failed with an `AttributeError` or `IndexError`. The exporter now refuses
+  each with a `ValueError` that names the option. Supported models export
+  unchanged.
+- Fixed MACE export of models with correlation order 1 or 2 in any layer,
+  including mixed orders such as `correlation=[3, 2]`, which failed with
+  `IndexError: index 1 is out of range`. Orders above 3 are now refused with
+  a message instead of failing or exporting a truncated product. Order-3
+  exports are unchanged.
+- Fixed pair-spline export (`radial_format="pair-splines"`) of models with
+  `apply_cutoff=False`: MACE then returns the polynomial cutoff separately and
+  multiplies it into the radial weights and edge densities, but the exporter
+  dropped it, so the R0, R1, A0 and A1 tables did not vanish at the cutoff
+  (forces off by 2e-2 eV/A on a small test model, 0.46 eV/A with density
+  blocks). The tables now include the cutoff. Exports of models with the
+  cutoff in the radial basis are unchanged.
+
 ## 0.1.2 - 2026-11-04
 
 - Added an opt-in Apple Metal backend for FP32 standard-MACE execution on
