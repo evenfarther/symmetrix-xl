@@ -34,6 +34,7 @@ _R1_CONTRACT = (
     / "execution_contracts"
     / "jit_r1_mace_off23_small_contract.json"
 )
+_WIDE_R1_CONTRACT = _R1_CONTRACT.with_name("jit_r1_mace_off23_large_contract.json")
 
 _RUN_CASE = r"""
 import json
@@ -160,22 +161,33 @@ def kokkos_api():
     return _lammps_kokkos_api()
 
 
-@pytest.fixture(scope="module")
-def compact_model_path(tmp_path_factory):
-    """A compact two-layer MACE with the public MACE-OFF23 small R1 layout."""
-
+def _write_compact_model(tmp_path_factory, contract):
     helper = _SYMMETRIX_TESTS / "compact_r1_model.py"
-    if not helper.is_file() or not _R1_CONTRACT.is_file():
+    if not helper.is_file() or not contract.is_file():
         pytest.skip(f"the compact R1 test model helper is missing: {helper}")
     spec = importlib.util.spec_from_file_location("compact_r1_model", helper)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     model = module.foundation_r1_test_model(
-        json.loads(_R1_CONTRACT.read_text()), atomic_numbers=(1, 8)
+        json.loads(contract.read_text()), atomic_numbers=(1, 8)
     )
     path = tmp_path_factory.mktemp("kokkos-atom-map") / "compact-mace.json"
     path.write_text(json.dumps(model, separators=(",", ":")))
     return path
+
+
+@pytest.fixture(scope="module")
+def compact_model_path(tmp_path_factory):
+    """A compact two-layer MACE with the public MACE-OFF23 small R1 layout."""
+
+    return _write_compact_model(tmp_path_factory, _R1_CONTRACT)
+
+
+@pytest.fixture(scope="module")
+def wide_compact_model_path(tmp_path_factory):
+    """The same with the MACE-OFF23 large R1 layout: 2016 H1 values per atom."""
+
+    return _write_compact_model(tmp_path_factory, _WIDE_R1_CONTRACT)
 
 
 @pytest.fixture(scope="module")
@@ -928,4 +940,44 @@ def test_serial_pair_style_on_a_type_filtered_list(tmp_path, compact_model_path,
     assert result["pe"] == pytest.approx(reference["pe"], rel=1.0e-12, abs=1.0e-10)
     np.testing.assert_allclose(
         forces[len(_DUMMY_POSITIONS) :], expected_forces, rtol=1.0e-12, atol=1.0e-10
+    )
+
+
+def test_serial_hybrid_overlay_message_passing_matches_the_plain_style(
+    tmp_path, wide_compact_model_path
+):
+    # As for the Kokkos pair style: Comm::init sizes the host communication
+    # buffers from the hybrid wrapper, which took the sub-styles' message sizes
+    # before pair_coeff loaded the model. This model sends 2016 values per atom,
+    # more than the buffers' initial size.
+    model = wide_compact_model_path
+    style = "symmetrix/mace mpi_message_passing"
+    results = {}
+    for label, pair_style, coeff_style in (
+        ("plain", style, ""),
+        ("hybrid-overlay", f"hybrid/overlay {style}", "symmetrix/mace "),
+    ):
+        lines = _static_deck(model, pair_style, kokkos=False).splitlines()
+        setup = "\n".join(
+            line.replace("* * ", f"* * {coeff_style}")
+            if line.startswith("pair_coeff")
+            else line
+            for line in lines
+        )
+        completed, log_text = _run_deck(
+            tmp_path,
+            f"serial-wide-{label}",
+            setup,
+            stages=[["initial", "run 0"]],
+            timeout=300,
+            kokkos=False,
+        )
+        results[label] = _case_result(f"serial-wide-{label}", completed, log_text)[
+            "initial"
+        ]
+    plain, hybrid = results["plain"], results["hybrid-overlay"]
+    assert np.max(np.abs(plain["forces"])) > 0.0
+    assert hybrid["pe"] == pytest.approx(plain["pe"], rel=1.0e-12, abs=1.0e-10)
+    np.testing.assert_allclose(
+        hybrid["forces"], plain["forces"], rtol=1.0e-12, atol=1.0e-10
     )

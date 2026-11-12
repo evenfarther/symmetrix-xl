@@ -244,6 +244,16 @@ void PairSymmetrixMACE::init_style()
   if (strcmp(update->unit_style, "metal") != 0)
     error->all(FLERR, "symmetrix/mace requires \'units metal\'");
 
+  // Under pair_style hybrid or hybrid/overlay, Comm::init sizes the host
+  // communication buffers from the wrapper's comm_forward and comm_reverse.
+  // The wrapper took its sub-styles' sizes in settings(), before coeff() set
+  // this style's from the model, so raise them here: the pair styles are
+  // initialized before Comm::init runs.
+  if (force->pair != this) {
+    force->pair->comm_forward = std::max(force->pair->comm_forward, comm_forward);
+    force->pair->comm_reverse = std::max(force->pair->comm_reverse, comm_reverse);
+  }
+
   if (mode == "no_domain_decomposition" or mode == "mpi_message_passing") {
     neighbor->add_request(this, NeighConst::REQ_FULL);
   } else {
