@@ -9,7 +9,7 @@ import pytest
 import symmetrix.calculator as calculator_module
 from ase import units
 from ase.atoms import Atoms
-from ase.build import bulk
+from ase.build import bulk, molecule
 from ase.calculators.calculator import Calculator
 from ase.md.npt import NPT
 from ase.stress import full_3x3_to_voigt_6_stress
@@ -1215,6 +1215,45 @@ def test_symmetrix_calc_finite_diff(generated_standard_mace_zbl_model, use_kokko
         streamed_edges="materialized",
     )
     do_grad_test(atoms, calc, True)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"streamed_edges": "materialized"},
+        {"streamed_edges": "materialized", "neighbor_skin": 0.0},
+    ],
+    ids=["neighbor-skin", "no-skin"],
+)
+def test_cells_without_volume_match_cells_with_vacuum(
+    generated_standard_mace_zbl_model, kwargs
+):
+    def evaluate(atoms):
+        atoms = atoms.copy()
+        atoms.calc = Symmetrix(
+            generated_standard_mace_zbl_model, dtype="float64", **kwargs
+        )
+        return atoms.get_potential_energy(), atoms.get_forces()
+
+    def assert_same(actual, expected):
+        assert actual[0] == pytest.approx(expected[0], rel=1e-12, abs=1e-12)
+        np.testing.assert_allclose(actual[1], expected[1], rtol=0.0, atol=1e-12)
+
+    no_cell = molecule("H2O")
+    assert no_cell.cell.rank == 0
+    in_box = no_cell.copy()
+    in_box.set_cell([12.0, 12.0, 12.0])
+    assert_same(evaluate(no_cell), evaluate(in_box))
+
+    slab = Atoms(
+        "O2",
+        positions=[[0.0, 0.0, 0.0], [1.0, 1.0, 0.3]],
+        cell=[[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 0.0]],
+        pbc=[True, True, False],
+    )
+    slab_with_vacuum = slab.copy()
+    slab_with_vacuum.set_cell([2.0, 2.0, 12.0])
+    assert_same(evaluate(slab), evaluate(slab_with_vacuum))
 
 
 @pytest.mark.skipif(mace is None, reason="mace-torch is not available")
