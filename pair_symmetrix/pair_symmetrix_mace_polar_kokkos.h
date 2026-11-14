@@ -30,6 +30,7 @@ PairStyle(symmetrix/mace/polar/float32/kk/device,PairSymmetrixMACEPolarKokkosDev
 #include <array>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace LAMMPS_NS {
 
@@ -55,7 +56,13 @@ class PairSymmetrixMACEPolarKokkos : public Pair, public KokkosBase {
   symmetrix::lammps::PolarGraphSettings graph_settings_;
   std::string prediction_head_;
   std::string jit_artifact_;
+  std::vector<symmetrix::lammps::PolarJitProductArtifact> jit_product_artifacts_;
+  bool jit_execution_reported_=false;
   std::string jit_target_="host";
+  // The head and artifact of the last settings() call and of the one the
+  // model was loaded with in coeff().
+  std::string settings_key_;
+  std::string coeff_settings_key_;
   std::unique_ptr<Consumer> consumer_;
   Kokkos::View<int*,typename DeviceType::memory_space> atomic_numbers_;
   Kokkos::View<int*,typename DeviceType::memory_space> node_indices_;

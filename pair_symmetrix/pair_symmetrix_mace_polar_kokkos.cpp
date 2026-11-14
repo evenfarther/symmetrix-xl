@@ -17,6 +17,7 @@
 #include "neighbor.h"
 #include "neigh_list_kokkos.h"
 #include "neigh_request.h"
+#include "update.h"
 #include "utils.h"
 
 #include <algorithm>
@@ -142,12 +143,33 @@ void PairSymmetrixMACEPolarKokkos<DeviceType,Precision>::settings(
       }
       jit_target_=artifact_selection.target;
       jit_artifact_=artifact_selection.path;
+    } else if(token=="jit_product_artifact") {
+      if(i+3>=narg)error->all(FLERR,"pair_style symmetrix/mace/polar/kk jit_product_artifact requires a layer, a path and a blocks-per-compute-unit count");
+      try {
+        symmetrix::lammps::select_polar_jit_product_artifact(
+          artifact_selection,arg[i+1],arg[i+2],arg[i+3]);
+      } catch(const std::exception& exception) {
+        error->all(FLERR,"{}",exception.what());
+      }
+      i+=3;
     } else {
       error->all(FLERR,"Invalid pair_style symmetrix/mace/polar/kk setting: {}",token);
     }
   }
-  try {symmetrix::lammps::validate_polar_graph_settings(graph_settings_);}
+  try {
+    symmetrix::lammps::validate_polar_graph_settings(graph_settings_);
+    symmetrix::lammps::validate_polar_jit_artifact_selection(artifact_selection);
+  }
   catch(const std::exception& exception) {error->all(FLERR,"{}",exception.what());}
+  // coeff() loads the model with the head and the artifact; the graph
+  // settings are read at every compute. LAMMPS passes a re-issued pair_style
+  // line with the same style to settings() of this instance and keeps the
+  // loaded model, so init_style() compares the two.
+  settings_key_=prediction_head_+'\n'+jit_target_+'\n'+jit_artifact_;
+  jit_product_artifacts_=artifact_selection.products;
+  for(const auto& product:jit_product_artifacts_)
+    settings_key_+='\n'+std::to_string(product.layer)+'\n'+product.path
+      +'\n'+std::to_string(product.blocks_per_compute_unit);
 }
 
 template<class DeviceType,typename Precision>
@@ -185,12 +207,33 @@ void PairSymmetrixMACEPolarKokkos<DeviceType,Precision>::coeff(
   if(!allocated)allocate();
   try {
     consumer_=std::make_unique<Consumer>(arg[2],prediction_head_);
+    jit_execution_reported_=false;
     if(jit_artifact_.empty()) {
       consumer_->set_streamed_edges("direct_streamed");
     } else {
-      if(!consumer_->load_artifact(jit_artifact_,jit_target_))
+      // jit_device_artifact names the accelerator backend of this build.
+      const std::string target=jit_target_=="device"
+        ?consumer_->artifact_backend():jit_target_;
+      if(jit_target_=="device"&&target=="host")
+        throw std::invalid_argument(
+          "jit_device_artifact requires a CUDA or HIP build; a CPU build "
+          "takes jit_host_artifact");
+      if(!consumer_->load_artifact(jit_artifact_,target))
         throw std::invalid_argument("MACE Polar JIT artifact was not admitted");
       consumer_->set_streamed_edges("direct");
+      // The generated backbone holds no product contraction: every layer runs
+      // its own M0 or M1 module, and an incomplete set never falls back to the
+      // portable product.
+      for(const auto& product:jit_product_artifacts_)
+        if(!consumer_->load_published_product_artifact(
+            product.layer,product.path,product.blocks_per_compute_unit))
+          throw std::invalid_argument(
+            "MACE Polar JIT product artifact was not admitted: "+product.path);
+      if(!consumer_->product_artifacts_ready())
+        throw std::invalid_argument(
+          "a MACE Polar JIT artifact requires one jit_product_artifact per "
+          "interaction layer; direct execution does not fall back to another "
+          "algorithm");
     }
   } catch(const std::exception& exception) {
     error->all(FLERR,"Failed to load MACE Polar model: {}",exception.what());
@@ -205,6 +248,7 @@ void PairSymmetrixMACEPolarKokkos<DeviceType,Precision>::coeff(
   type_metadata_upload_pending_=true;
   for(int i=1;i<=atom->ntypes;++i)
     for(int j=i;j<=atom->ntypes;++j)setflag[i][j]=1;
+  coeff_settings_key_=settings_key_;
 }
 
 template<class DeviceType,typename Precision>
@@ -216,12 +260,18 @@ double PairSymmetrixMACEPolarKokkos<DeviceType,Precision>::init_one(int,int)
 template<class DeviceType,typename Precision>
 void PairSymmetrixMACEPolarKokkos<DeviceType,Precision>::init_style()
 {
+  // The models take positions in Angstrom and return energies in eV; the unit
+  // style is final once the box exists.
+  if(strcmp(update->unit_style,"metal")!=0)
+    error->all(FLERR,"symmetrix/mace/polar/kk requires 'units metal'");
   symmetrix::lammps::PolarAdmissionRequest admission{
     comm->nprocs,atom->nlocal,static_cast<std::int64_t>(atom->natoms)};
   admission.hybrid_substyle=polar_hybrid_substyle(lmp);
   try {symmetrix::lammps::admit_polar_pair_style(admission);}
   catch(const std::exception& exception) {error->all(FLERR,"{}",exception.what());}
   if(!consumer_)error->all(FLERR,"Pair coefficients are not set for symmetrix/mace/polar/kk");
+  if(coeff_settings_key_!=settings_key_)
+    error->all(FLERR,"pair_style symmetrix/mace/polar/kk options changed after pair_coeff; issue pair_coeff again");
   if(atom->map_style==Atom::MAP_NONE) {
     atom->map_user=Atom::MAP_YES;
     atom->map_style=Atom::MAP_YES;
@@ -426,6 +476,18 @@ void PairSymmetrixMACEPolarKokkos<DeviceType,Precision>::compute(
       forces_,stress_,dipole_);
   } catch(const std::exception& exception) {
     error->all(FLERR,"MACE Polar evaluation failed: {}",exception.what());
+  }
+  if(!jit_artifact_.empty()&&!jit_execution_reported_) {
+    // Once per loaded model: how many product modules ran both passes. The
+    // generated backbone has no other product, so every layer must have.
+    std::size_t executed=0;
+    for(const auto& product:jit_product_artifacts_)
+      if(consumer_->product_artifact_executed(product.layer))++executed;
+    utils::logmesg(lmp,
+      "MACE Polar JIT executed {}/{} product layers; backbone fallbacks {}\n",
+      executed,jit_product_artifacts_.size(),
+      result.diagnostics.evaluation.backbone_fallback_count);
+    jit_execution_reported_=true;
   }
   if(eflag_global)eng_vdwl+=result.energy;
   symmetrix::mace_polar::add_polar_public_forces_device(
