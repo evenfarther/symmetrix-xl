@@ -4,6 +4,18 @@ All notable changes to Symmetrix-XL are documented in this file.
 
 ## Unreleased
 
+- Moved the MACE and MACEField model tables out of managed memory on CUDA
+  and HIP. Kernels read them at every evaluation while launch setup touches
+  the same pages on the host, so the pages migrated between host and device
+  during MD. Tables loaded through the one-dimensional `toKokkosView` are
+  now device arrays, the View-of-Views keep their owning outer arrays on the
+  host with device handle arrays for the kernels, and the streamed candidate
+  graph reuses its device storage across rebuilds; the values are unchanged.
+  The one-dimensional converter is shared, so its other callers (ZBL, e3nn
+  helpers, MACE_Nonlinear) also get device arrays. MACE_Nonlinear's
+  AffineMLP metadata and owner arrays stay in managed memory; its
+  `pair_spline_v1` type maps are now device arrays uploaded at each
+  evaluation.
 - Fixed the A1 channel-tile kernels of the Phi1 `channel-tiled-64` policy,
   which the CUDA dual-layer fixed-workspace plan selects: they read the
   evaluator's channel count through the host object pointer, which a GPU can

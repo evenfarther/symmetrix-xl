@@ -615,6 +615,9 @@ Kokkos::View<int*> all_interactions_candidate_first_neigh;
 Kokkos::View<int*> all_interactions_candidate_edge_receivers;
 Kokkos::View<int*> all_interactions_candidate_neigh_indices;
 Kokkos::View<int*> all_interactions_candidate_neigh_types;
+// Device storage of the six views above, which are its active prefixes; a
+// rebuild that fits reuses it.
+std::array<Kokkos::View<int*>, 6> all_interactions_candidate_storage;
 Kokkos::View<int*> all_interactions_candidate_active;
 Kokkos::View<int*> all_interactions_active_num_neigh;
 Kokkos::View<int*> all_interactions_active_edge_receivers;
@@ -838,12 +841,17 @@ Kokkos::View<Precision***,Kokkos::LayoutRight> M0, M0_adj;
 std::size_t mh0_m0_forward_replacement_count = 0;
 std::size_t mh0_m0_adjoint_allocation_count = 0;
 std::size_t mh0_m0_alias_detach_count = 0;
-Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_monomials;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_weights;
-Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_spec;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_coeff;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_values;
-Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::SharedSpace> M0_poly_adjoints;
+Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::HostSpace> M0_monomials;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::HostSpace> M0_weights;
+Kokkos::View<Kokkos::View<int**,Kokkos::LayoutRight>*,Kokkos::HostSpace> M0_poly_spec;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::HostSpace> M0_poly_coeff;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::HostSpace> M0_poly_values;
+Kokkos::View<Kokkos::View<Precision***,Kokkos::LayoutRight>*,Kokkos::HostSpace> M0_poly_adjoints;
+// Device handles to the polynomial arrays above, for the runtime polynomial
+// M0 kernels (fill_device_handles).
+DeviceHandles<Kokkos::View<int**,Kokkos::LayoutRight>> M0_poly_spec_device;
+DeviceHandles<Kokkos::View<Precision***,Kokkos::LayoutRight>>
+    M0_poly_coeff_device, M0_poly_values_device, M0_poly_adjoints_device;
 enum class StandardM0Executor {
     automatic,
     runtime,
@@ -1093,12 +1101,17 @@ Kokkos::View<int*> Phi1_path_row_offsets;
 Kokkos::View<Precision***,Kokkos::LayoutRight> A1, A1_adj;
 Kokkos::View<double*> A1_inverse_scale;
 bool a1_scale_factors_ready = false;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace> A1_weights_trans;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace> A1_weights;
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace> A1_weights_trans;
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace>
     A1_channel_tile_weights;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace>
     A1_channel_tile_weights_trans;
+// Device handles to the four A1 weight arrays above, for the team A1 kernels
+// (fill_device_handles).
+DeviceHandles<Kokkos::View<Precision**,Kokkos::LayoutRight>>
+    A1_weights_device, A1_weights_trans_device,
+    A1_channel_tile_weights_device, A1_channel_tile_weights_trans_device;
 // Private staging buffers for the accelerator BLAS A1 path.  The public A1 and
 // Phi1 layouts remain node-major, so direct BLAS still pays a pack/unpack cost.
 // Keep the tile bounded because the staging buffers scale with this extent.
@@ -1237,11 +1250,11 @@ Kokkos::View<int*> execution_row_cg_offsets;
 Kokkos::View<int*> execution_row_cg_lme;
 Kokkos::View<Precision*> execution_row_cg_coefficients;
 Kokkos::View<int*> execution_lme_component;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace>
     execution_projection;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace>
     execution_projection_trans;
-Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::SharedSpace>
+Kokkos::View<Kokkos::View<Precision**,Kokkos::LayoutRight>*,Kokkos::HostSpace>
     execution_final_projection;
 using ExecutionScratchMatrix = Kokkos::View<
     Precision**,Kokkos::LayoutRight,Kokkos::MemoryUnmanaged>;

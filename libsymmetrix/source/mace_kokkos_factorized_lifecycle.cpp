@@ -509,18 +509,36 @@ std::uint64_t MACEKokkos<Precision>::prepare_all_interactions_graph(
         edge_offset += prepared_num_neigh[receiver];
     }
 
-    all_interactions_candidate_node_types = toKokkosView(
-        "Streamed all candidate node types", prepared_node_types);
-    all_interactions_candidate_num_neigh = toKokkosView(
-        "Streamed all candidate receiver degrees", prepared_num_neigh);
-    all_interactions_candidate_first_neigh = toKokkosView(
-        "Streamed all candidate receiver offsets", candidate_first_neigh);
-    all_interactions_candidate_edge_receivers = toKokkosView(
-        "Streamed all candidate receivers", candidate_edge_receivers);
-    all_interactions_candidate_neigh_indices = toKokkosView(
-        "Streamed all candidate source indices", prepared_neigh_indices);
-    all_interactions_candidate_neigh_types = toKokkosView(
-        "Streamed all candidate neighbor types", prepared_neigh_types);
+    // Upload each active prefix with a blocking copy.  Retain device capacity
+    // between rebuilds and grow only the arrays whose required extent grows.
+    const auto upload = [this] (
+        const std::size_t slot, Kokkos::View<int*>& active,
+        const std::vector<int>& values, const char* label) {
+        auto& storage = all_interactions_candidate_storage[slot];
+        if (storage.extent(0) < values.size())
+            storage = Kokkos::View<int*>(
+                Kokkos::view_alloc(
+                    Kokkos::WithoutInitializing, std::string(label)),
+                values.size());
+        active = Kokkos::subview(
+            storage, Kokkos::make_pair(std::size_t(0), values.size()));
+        Kokkos::deep_copy(
+            active,
+            Kokkos::View<const int*,Kokkos::HostSpace,Kokkos::MemoryUnmanaged>(
+                values.data(), values.size()));
+    };
+    upload(0, all_interactions_candidate_node_types, prepared_node_types,
+        "Streamed all candidate node types");
+    upload(1, all_interactions_candidate_num_neigh, prepared_num_neigh,
+        "Streamed all candidate receiver degrees");
+    upload(2, all_interactions_candidate_first_neigh, candidate_first_neigh,
+        "Streamed all candidate receiver offsets");
+    upload(3, all_interactions_candidate_edge_receivers,
+        candidate_edge_receivers, "Streamed all candidate receivers");
+    upload(4, all_interactions_candidate_neigh_indices,
+        prepared_neigh_indices, "Streamed all candidate source indices");
+    upload(5, all_interactions_candidate_neigh_types, prepared_neigh_types,
+        "Streamed all candidate neighbor types");
 
     const int num_edges = static_cast<int>(prepared_neigh_indices.size());
     if (all_interactions_capacity_nodes < num_nodes) {
@@ -4305,7 +4323,7 @@ void MACEKokkos<Precision>::prepare_factorized_model(
     }
 
     using Matrix = Kokkos::View<Precision**,Kokkos::LayoutRight>;
-    using MatrixArray = Kokkos::View<Matrix*,Kokkos::SharedSpace>;
+    using MatrixArray = Kokkos::View<Matrix*,Kokkos::HostSpace>;
     auto projection = MatrixArray(
         Kokkos::view_alloc("Execution R1 projections", Kokkos::SequentialHostInit),
         l_max+1);
